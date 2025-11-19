@@ -7,13 +7,18 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // PostgreSQL Database connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/labor_management',
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  connectionString: process.env.DATABASE_URL || 'postgresql://labor_management_db_user:ociXXDhEM03bvhhUvm7GhNGKSotONZPI@dpg-d4ersa3e5dus73fm3d70-a.oregon-postgres.render.com/labor_management_db',
+  // If you're on Render / production and DATABASE_URL requires SSL, ensure SSL object is set.
+  // This sets ssl when NODE_ENV === 'production' OR when DATABASE_URL contains "sslmode=require".
+  ssl: (process.env.NODE_ENV === 'production' || (process.env.DATABASE_URL || '').includes('sslmode=require'))
+        ? { rejectUnauthorized: false }
+        : false
 });
 
 // Initialize database tables
@@ -66,13 +71,15 @@ app.get('/api/records', async (req, res) => {
 app.post('/api/records', async (req, res) => {
   try {
     const { id, name, date, description, baki, jama, total, section } = req.body;
-    
+    if (!name || !date) return res.status(400).json({ error: 'name and date are required' });
+
     const { rows } = await pool.query(
       'INSERT INTO records (id, name, date, description, baki, jama, total, section) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
       [id, name, date, description, baki, jama, total, section || 'daily']
     );
-    
-    res.json({ success: true, id });
+
+    // return created row and 201
+    res.status(201).json(rows[0]);
   } catch (error) {
     console.error('Error adding record:', error);
     res.status(500).json({ error: 'Failed to add record' });
