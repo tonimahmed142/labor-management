@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>লেবার ম্যানেজমেন্ট (Offline)</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body{font-family: "Noto Sans Bengali", Arial, sans-serif; background:#f4f4f4; color:#222}
+  header{background:#0077cc;color:#fff;padding:14px;text-align:center;font-weight:600}
+  
+  .app{max-width:1100px;margin:18px auto;padding:16px;background:#fff;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.08)}
+  .hidden{display:none}
+  table{width:100%;border-collapse:collapse}
+  tr {
+    transition: background-color 0.3s ease; /* smooth transition */
+    cursor: pointer;
+  }
+
+  tr:hover {
+    background-color: red;
+  }
+
+  tr.clicked {
+    background-color: red;
+    color: white;
+  }
+  /* --- Red Dot Feature --- */
+.red-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: red;
+  margin-right: 5px;
+  transition: opacity 0.4s ease;
+}
+.red-dot.fade-out {
+  opacity: 0;
+}
+  th,td{padding:8px;border:1px solid #e8e8e8;text-align:center}
+  th{background:#0077cc;color:#fff}
+  .red{background:#ffdddd}
+  .tab-btn{margin-right:6px}
+  input,select,textarea{padding:6px;border:1px solid #ddd;border-radius:5px}
+  .small{font-size:13px;color:#555}
+  a.pointer{cursor:pointer;color:#0077cc}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .controls > *{min-width:120px}
+  .btn-small{padding:.375rem .5rem;font-size:.85rem}
+  @media(max-width:820px){ .controls{flex-direction:column;align-items:stretch} .controls > *{width:100%} }
+  .searchRow{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+  .modal .form-group label{font-weight:600}
+</style>
+</head>
+<body>
+<header>লেবার কাজ ও বিল — Offline (localStorage)</header>
+
+<div class="app" id="loginPage">
+  <h4>লগইন</h4>
+  <div class="mb-2">
+    <button class="btn btn-primary" onclick="adminLogin()">Admin Login</button>
+
+    <button class="btn btn-sm btn-secondary float-right" onclick="exportCSV()">Export CSV</button>
+    <label class="btn btn-sm btn-info mb-0 float-right mr-2">
+      Import CSV <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCSV(event)">
+    </label>
+  </div>
+  <p class="small">Data saved locally on this browser. Use Export CSV to backup.</p>
+</div>
+
+<div class="app hidden" id="passwordBox">
+  <h5>অ্যাডমিন পাসওয়ার্ড দিন</h5>
+  <div class="d-flex" style="gap:8px">
+    <input id="adminPass" type="password" class="form-control" placeholder="Password">
+    <button class="btn btn-primary" onclick="checkPassword()">Submit</button>
+    <button class="btn btn-secondary" onclick="backToLogin()">Back</button>
+  </div>
+</div>
+
+<div class="app hidden" id="dashboard">
+  <div class="d-flex align-items-center mb-2">
+    <button class="btn btn-sm btn-outline-secondary tab-btn" id="dailyTabBtn" onclick="showTab('daily')">Daily Work</button>
+    <button class="btn btn-sm btn-outline-secondary tab-btn" id="permTabBtn" onclick="showTab('perm')">Permanent Workers</button>
+    <button class="btn btn-sm btn-outline-secondary tab-btn" onclick="window.location.href='chart.html'">📊 Show Chart</button>
+    <div style="flex:1"></div>
+    <input id="globalSearch" class="form-control" placeholder="Search by name, date or description" style="max-width:360px" oninput="renderDailyTable()" />
+  </div>
+
+  <div id="dailySection">
+    <h5>দৈনিক কাজ</h5>
+    <div id="adminControls" class="mb-2 hidden">
+      <div class="controls">
+        <div>
+          <input id="nameInput" list="namesList" class="form-control" placeholder="নাম" />
+          <datalist id="namesList"></datalist>
+        </div>
+        <input id="dateInput" type="date" class="form-control" />
+        <input id="detailsInput" class="form-control" placeholder="বিবরণ (উদাহরণ: Payment, Brick work)" />
+        <input id="bakiInput" type="number" class="form-control" placeholder="বাকী" oninput="recalcTotalAdd()" />
+        <input id="jamaInput" type="number" class="form-control" placeholder="জমা" oninput="recalcTotalAdd()" />
+        <input id="totalInput" type="number" class="form-control" placeholder="মোট (auto)" />
+        <select id="sectionInput" class="form-control">
+          <option value="daily">Daily</option>
+          <option value="permanent">Permanent</option>
+        </select>
+        <button class="btn btn-primary" onclick="addRecord()">Add</button>
+      </div>
+      <div class="small mt-1">Tip: total auto-calculates as বাকী + জমা. "Payment" or জমা>0 will highlight row red.</div>
+    </div>
+
+    <table id="dailyTable" class="table table-sm">
+      <thead>
+        <tr>
+          <th>নাম</th><th>তারিখ</th><th>বিবরণ</th><th>বাকী</th><th>জমা</th><th>মোট</th><th class="admin-only hidden">Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div id="permSection" class="hidden mt-3">
+    <h5>স্থায়ী শ্রমিক</h5>
+    <div class="small mb-2">Click a name to see detailed history (row-by-row) with running total.</div>
+    <table id="workerTable" class="table table-sm">
+      <thead>
+        <tr><th>নাম</th><th>মোট বাকী</th><th>মোট জমা</th><th>মোট (ব্যালান্স)</th><th>মোট কাজ</th><th>শেষ হয়েছে?</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Worker details -->
+<div class="app hidden" id="workerDetails">
+  <h5 id="workerTitle">Worker</h5>
+  <table class="table table-sm">
+    <thead><tr><th>তারিখ</th><th>বিবরণ</th><th>বাকী</th><th>জমা</th><th>মোট</th><th>মোট (রানিং)</th><th>Edit</th></tr></thead>
+    <tbody id="workerDetailBody"></tbody>
+  </table>
+  <div class="mt-2"><button class="btn btn-secondary" onclick="closeWorkerDetails()">Back</button></div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">রেকর্ড সম্পাদনা করুন</h5><button type="button" class="close" data-dismiss="modal" aria-label="Close" onclick="closeEditModal()"><span aria-hidden="true">&times;</span></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editId">
+        <div class="form-group">
+          <label>নাম</label>
+          <input id="editName" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label>তারিখ</label>
+          <input id="editDate" type="date" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label>বিবরণ</label>
+          <input id="editDetails" class="form-control" />
+        </div>
+        <div class="form-row">
+          <div class="form-group col"><label>বাকী</label><input id="editBaki" type="number" class="form-control" oninput="recalcTotalEdit()" /></div>
+          <div class="form-group col"><label>জমা</label><input id="editJama" type="number" class="form-control" oninput="recalcTotalEdit()" /></div>
+          <div class="form-group col"><label>মোট</label><input id="editTotal" type="number" class="form-control" /></div>
+        </div>
+        <div class="form-group">
+          <label>সেকশন</label>
+          <select id="editSection" class="form-control"><option value="daily">Daily</option><option value="permanent">Permanent</option></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal" onclick="closeEditModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- libs -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+document.querySelectorAll("tr").forEach(row => {
+    row.addEventListener("click", () => {
+      document.querySelectorAll("tr").forEach(r => r.classList.remove("clicked"));
+      row.classList.add("clicked");
+    });
+});
+
+/* Online app using MySQL database with API calls */
+const API_BASE = ''; // Same domain for Render deployment
+let mode = '';
+let records = [];
+let finishedStatus = {};
+
+/* Auth / Navigation */
+function adminLogin(){ 
+    document.getElementById('loginPage').classList.add('hidden'); 
+    document.getElementById('passwordBox').classList.remove('hidden'); 
+}
+function backToLogin(){ 
+    document.getElementById('passwordBox').classList.add('hidden'); 
+    document.getElementById('loginPage').classList.remove('hidden'); 
+}
+function checkPassword(){ 
+    const p = document.getElementById('adminPass').value; 
+    if(p === '2005') openDashboard('admin'); 
+    else alert('Wrong password!'); 
+}
+function openDashboard(t){
+  mode = t;
+  document.getElementById('loginPage').classList.add('hidden');
+  document.getElementById('passwordBox').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  if(mode === 'admin'){ 
+    document.getElementById('adminControls').classList.remove('hidden'); 
+    document.querySelectorAll('.admin-only').forEach(e=>e.classList.remove('hidden')); 
+  }
+  loadFromDatabase();
+  showTab('daily');
+}
+function logout(){ location.reload(); }
+function showTab(tab){
+  if(tab === 'daily'){
+    document.getElementById('dailySection').classList.remove('hidden');
+    document.getElementById('permSection').classList.add('hidden');
+    document.getElementById('dailyTabBtn').classList.add('btn-primary');
+    document.getElementById('permTabBtn').classList.remove('btn-primary');
+  } else {
+    document.getElementById('dailySection').classList.add('hidden');
+    document.getElementById('permSection').classList.remove('hidden');
+    document.getElementById('dailyTabBtn').classList.remove('btn-primary');
+    document.getElementById('permTabBtn').classList.add('btn-primary');
+    renderWorkerTable();
+  }
+}
+
+/* Database API Calls */
+async function apiCall(endpoint, options = {}) {
+  try {
+    const response = await fetch(API_BASE + endpoint, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('API call failed:', error);
+    alert('Operation failed: ' + error.message);
+    throw error;
+  }
+}
+
+async function loadFromDatabase(){
+  try {
+    records = await apiCall('/api/records');
+    finishedStatus = await apiCall('/api/finished-status');
+    updateNamesDatalist(); 
+    renderDailyTable(); 
+    renderWorkerTable();
+  } catch (error) {
+    console.error('Failed to load data:', error);
+  }
+}
+
+async function saveRecord(record, isNew = false) {
+  if (isNew) {
+    await apiCall('/api/records', {
+      method: 'POST',
+      body: JSON.stringify(record)
+    });
+  } else {
+    await apiCall(`/api/records/${record.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(record)
+    });
+  }
+}
+
+async function deleteRecordFromDB(id) {
+  await apiCall(`/api/records/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+async function updateFinishedStatus(name, finished) {
+  await apiCall('/api/finished-status', {
+    method: 'POST',
+    body: JSON.stringify({ name, finished })
+  });
+}
+
+/* Add / Edit / Delete */
+function recalcTotalAdd(){
+  const baki = parseFloat(document.getElementById('bakiInput').value) || 0;
+  const jama = parseFloat(document.getElementById('jamaInput').value) || 0;
+  document.getElementById('totalInput').value = (baki + jama).toFixed(2);
+}
+
+function recalcTotalEdit(){
+  const baki = parseFloat(document.getElementById('editBaki').value) || 0;
+  const jama = parseFloat(document.getElementById('editJama').value) || 0;
+  document.getElementById('editTotal').value = (baki + jama).toFixed(2);
+}
+
+async function addRecord(){
+  const name = document.getElementById('nameInput').value.trim();
+  const date = document.getElementById('dateInput').value;
+  const description = document.getElementById('detailsInput').value.trim();
+  const baki = parseFloat(document.getElementById('bakiInput').value) || 0;
+  const jama = parseFloat(document.getElementById('jamaInput').value) || 0;
+  const total = parseFloat(document.getElementById('totalInput').value) || (baki + jama);
+  const section = document.getElementById('sectionInput').value || 'daily';
+  
+  if(!name || !date){ alert('নাম এবং তারিখ দিন'); return; }
+  
+  const id = Date.now().toString(36) + Math.floor(Math.random()*1000);
+  const record = { id, name, date, description, baki, jama, total, section };
+  
+  try {
+    await saveRecord(record, true);
+    records.push(record);
+    finishedStatus[name] = false;
+    await updateFinishedStatus(name, false);
+    clearAddInputs(); 
+    updateNamesDatalist(); 
+    renderDailyTable(); 
+    renderWorkerTable();
+  } catch (error) {
+    console.error('Failed to add record:', error);
+  }
+}
+
+function clearAddInputs(){
+  document.getElementById('nameInput').value=''; 
+  document.getElementById('dateInput').value=''; 
+  document.getElementById('detailsInput').value='';
+  document.getElementById('bakiInput').value=''; 
+  document.getElementById('jamaInput').value=''; 
+  document.getElementById('totalInput').value=''; 
+  document.getElementById('sectionInput').value='daily';
+}
+
+function openEditModal(id){
+  const rec = records.find(r=> r.id === id);
+  if(!rec) return alert('Record not found');
+  document.getElementById('editId').value = rec.id;
+  document.getElementById('editName').value = rec.name;
+  document.getElementById('editDate').value = rec.date;
+  document.getElementById('editDetails').value = rec.description;
+  document.getElementById('editBaki').value = rec.baki;
+  document.getElementById('editJama').value = rec.jama;
+  document.getElementById('editTotal').value = rec.total;
+  document.getElementById('editSection').value = rec.section || 'daily';
+  $('#editModal').modal('show');
+}
+
+function closeEditModal(){ $('#editModal').modal('hide'); }
+
+async function saveEdit(){
+  const id = document.getElementById('editId').value;
+  const rec = records.find(r=> r.id === id);
+  if(!rec) return alert('Record not found');
+  
+  rec.name = document.getElementById('editName').value.trim();
+  rec.date = document.getElementById('editDate').value;
+  rec.description = document.getElementById('editDetails').value.trim();
+  rec.baki = parseFloat(document.getElementById('editBaki').value) || 0;
+  rec.jama = parseFloat(document.getElementById('editJama').value) || 0;
+  rec.total = parseFloat(document.getElementById('editTotal').value) || (rec.baki + rec.jama);
+  rec.section = document.getElementById('editSection').value || 'daily';
+  
+  try {
+    await saveRecord(rec, false);
+    updateNamesDatalist(); 
+    renderDailyTable(); 
+    renderWorkerTable(); 
+    closeEditModal();
+  } catch (error) {
+    console.error('Failed to update record:', error);
+  }
+}
+
+async function deleteRecord(id){
+  if(!confirm('আপনি কি রেকর্ডটি মুছে ফেলতে চান?')) return;
+  
+  try {
+    await deleteRecordFromDB(id);
+    records = records.filter(r => r.id !== id);
+    updateNamesDatalist(); 
+    renderDailyTable(); 
+    renderWorkerTable();
+  } catch (error) {
+    console.error('Failed to delete record:', error);
+  }
+}
+
+/* Rendering + Search */
+function matchesSearch(rec){
+  const q = (document.getElementById('globalSearch').value || '').trim().toLowerCase();
+  if(!q) return true;
+  return (rec.name||'').toLowerCase().includes(q) || (rec.date||'').toLowerCase().includes(q) || (rec.description||'').toLowerCase().includes(q);
+}
+
+function renderDailyTable(){
+  const tbody = document.querySelector('#dailyTable tbody');
+  tbody.innerHTML = '';
+
+  const data = records
+    .slice()
+    .filter(r => r.section === 'daily' || !r.section)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const filtered = data.filter(matchesSearch);
+  filtered.forEach(r=>{
+    const tr = document.createElement('tr');
+    if((r.description||'').toLowerCase().includes('payment') || (parseFloat(r.jama)||0) > 0)
+      tr.classList.add('red');
+
+    const actions = mode === 'admin' ? `<td>
+      <button class="btn btn-sm btn-outline-primary btn-small mr-1" onclick="openEditModal('${r.id}')">Edit</button>
+      <button class="btn btn-sm btn-outline-danger btn-small" onclick="deleteRecord('${r.id}')">Delete</button>
+    </td>` : '<td></td>';
+
+    tr.innerHTML = `<td>${escapeHtml(r.name)}</td>
+                    <td>${escapeHtml(r.date)}</td>
+                    <td>${escapeHtml(r.description)}</td>
+                    <td>${(parseFloat(r.baki)||0).toFixed(2)}</td>
+                    <td>${(parseFloat(r.jama)||0).toFixed(2)}</td>
+                    <td>${(parseFloat(r.total)||0).toFixed(2)}</td>
+                    ${actions}`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderWorkerTable() {
+  const tbody = document.querySelector('#workerTable tbody');
+  tbody.innerHTML = '';
+  const map = {};
+  records.forEach(r=>{
+    const n = r.name || 'Unknown';
+    if(!map[n]) map[n] = { baki:0, jama:0, count:0 };
+    map[n].baki += parseFloat(r.baki || 0);
+    map[n].jama += parseFloat(r.jama || 0);
+    map[n].count += 1;
+  });
+  Object.keys(map).forEach(name=>{
+    const it = map[name];
+    const balance = it.baki - it.jama;
+    const isFinished = finishedStatus[name] || false;
+    const redDot = isFinished ? '' : '<span class="red-dot"></span>';
+    const checkbox = mode === 'admin' ? 
+      `<input type="checkbox" ${isFinished ? 'checked' : ''} onchange="toggleFinished('${escapeJS(name)}', this.checked)">` : 
+      (isFinished ? '✓' : '✗');
+    
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><a class="pointer" onclick="showWorkerDetails('${escapeJS(name)}')">${redDot}${escapeHtml(name)}</a></td>
+                    <td>${it.baki.toFixed(2)}</td>
+                    <td>${it.jama.toFixed(2)}</td>
+                    <td>${balance.toFixed(2)}</td>
+                    <td>${it.count}</td>
+                    <td>${checkbox}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function toggleFinished(name, checked) {
+  finishedStatus[name] = checked;
+  try {
+    await updateFinishedStatus(name, checked);
+    renderWorkerTable();
+  } catch (error) {
+    console.error('Failed to update finished status:', error);
+  }
+}  
+
+/* Worker details with running total */
+async function showWorkerDetails(name){
+  document.getElementById('dashboard').classList.add('hidden');
+  document.getElementById('workerDetails').classList.remove('hidden');
+  document.getElementById('workerTitle').innerHTML = 
+    `<div class="d-flex justify-content-between align-items-center">
+      <span>${escapeHtml(name)} - কার্যকারিতা</span>
+      <button class="btn btn-sm btn-info" onclick="printWorkerData('${escapeJS(name)}')">🖨️ প্রিন্ট</button>
+    </div>`;
+  
+  const data = records.filter(r => (r.name||'') === name).slice().sort((a,b) => new Date(a.date) - new Date(b.date));
+  const tbody = document.getElementById('workerDetailBody'); 
+  tbody.innerHTML = '';
+  let running = 0;
+  data.forEach(r=>{
+    running += (parseFloat(r.baki || 0) - parseFloat(r.jama || 0));
+    const tr = document.createElement('tr');
+    if((r.description||'').toLowerCase().includes('payment') || (parseFloat(r.jama)||0) > 0) tr.classList.add('red');
+    const editBtn = mode === 'admin' ? 
+      `<td><button class="btn btn-sm btn-outline-primary btn-small" onclick="openEditModal('${r.id}')">Edit</button></td>` : 
+      '<td></td>';
+    
+    tr.innerHTML = `<td>${escapeHtml(r.date)}</td>
+                    <td>${escapeHtml(r.description)}</td>
+                    <td>${(parseFloat(r.baki)||0).toFixed(2)}</td>
+                    <td>${(parseFloat(r.jama)||0).toFixed(2)}</td>
+                    <td>${(parseFloat(r.total)||0).toFixed(2)}</td>
+                    <td>${running.toFixed(2)}</td>
+                    ${editBtn}`;
+    tbody.appendChild(tr);
+  });
+}
+
+/* Print worker data */
+function printWorkerData(name) {
+  const data = records.filter(r => (r.name||'') === name).slice().sort((a,b) => new Date(a.date) - new Date(b.date));
+  let running = 0;
+  
+  let printContent = `
+    <html>
+    <head>
+      <title>${name} - Labor Record</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { color: #333; border-bottom: 2px solid #0077cc; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #0077cc; color: white; }
+        .total-row { font-weight: bold; background-color: #f0f0f0; }
+        .red { background-color: #ffdddd; }
+        @media print { body { margin: 0; } }
+      </style>
+    </head>
+    <body>
+      <h2>${name} - শ্রমিকের বিবরণ</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>তারিখ</th>
+            <th>বিবরণ</th>
+            <th>বাকী</th>
+            <th>জমা</th>
+            <th>মোট</th>
+            <th>মোট (রানিং)</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+  
+  data.forEach(r => {
+    running += (parseFloat(r.baki || 0) - parseFloat(r.jama || 0));
+    const rowClass = ((r.description||'').toLowerCase().includes('payment') || (parseFloat(r.jama)||0) > 0) ? 'red' : '';
+    
+    printContent += `
+      <tr class="${rowClass}">
+        <td>${r.date}</td>
+        <td>${r.description}</td>
+        <td>${(parseFloat(r.baki)||0).toFixed(2)}</td>
+        <td>${(parseFloat(r.jama)||0).toFixed(2)}</td>
+        <td>${(parseFloat(r.total)||0).toFixed(2)}</td>
+        <td>${running.toFixed(2)}</td>
+      </tr>
+    `;
+  });
+  
+  // Add summary row
+  const totalBaki = data.reduce((sum, r) => sum + (parseFloat(r.baki) || 0), 0);
+  const totalJama = data.reduce((sum, r) => sum + (parseFloat(r.jama) || 0), 0);
+  const finalBalance = totalBaki - totalJama;
+  
+  printContent += `
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="2">মোট সমষ্টি</td>
+            <td>${totalBaki.toFixed(2)}</td>
+            <td>${totalJama.toFixed(2)}</td>
+            <td>${(totalBaki + totalJama).toFixed(2)}</td>
+            <td>${finalBalance.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p style="margin-top: 20px; font-size: 12px; color: #666;">
+        প্রিন্টের তারিখ: ${new Date().toLocaleDateString('bn-BD')}
+      </p>
+    </body>
+    </html>
+  `;
+  
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(printContent);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  printWindow.close();
+}
+
+function closeWorkerDetails(){ 
+  document.getElementById('workerDetails').classList.add('hidden'); 
+  document.getElementById('dashboard').classList.remove('hidden'); 
+}
+
+/* Datalist names */
+function updateNamesDatalist(){
+  const set = new Set();
+  records.forEach(r => { if(r.name) set.add(r.name.trim()); });
+  const datalist = document.getElementById('namesList'); 
+  datalist.innerHTML = '';
+  Array.from(set).sort((a,b)=> a.localeCompare(b,'bn')).forEach(n=>{ 
+    const opt = document.createElement('option'); 
+    opt.value = n; 
+    datalist.appendChild(opt); 
+  });
+}
+
+/* CSV export/import */
+function exportCSV(){
+  if(!records || records.length === 0){
+    alert('No records to export');
+    return;
+  }
+  const headers = ['id','name','date','description','baki','jama','total','section'];
+  const rows = records.map(r => headers.map(h => `"${String(r[h] != null ? r[h] : '')}"`));
+  const csv = [headers.join(',')].concat(rows.map(r => r.join(','))).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'labor_data.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importCSV(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader(); reader.onload = async function(evt){
+    try {
+      const text = evt.target.result; const parsed = parseCSV(text);
+      const newRecords = parsed.map((row,i)=>({
+        id: row.id || ('imp' + Date.now().toString(36) + i),
+        name: row.name || row.Name || '',
+        date: row.date || row.Date || '',
+        description: row.description || row.Description || row.details || '',
+        baki: parseFloat(row.baki || row.Baki || 0) || 0,
+        jama: parseFloat(row.jama || row.Joma || 0) || 0,
+        total: parseFloat(row.total || 0) || 0,
+        section: row.section || 'daily'
+      }));
+      
+      // Save each record to database
+      for (const record of newRecords) {
+        await saveRecord(record, true);
+      }
+      
+      // Reload all data
+      await loadFromDatabase();
+      alert('Imported CSV successfully'); 
+      document.getElementById('csvFile').value = '';
+    } catch(err){ 
+      console.error(err); 
+      alert('Failed to import CSV'); 
+    }
+  }; reader.readAsText(file);
+}
+
+/* CSV parser (handles quoted fields) */
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+  if(lines.length === 0) return [];
+  const headers = splitCSVLine(lines[0]).map(h=>h.trim());
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const vals = splitCSVLine(lines[i]);
+    const obj = {};
+    headers.forEach((h,idx)=> obj[h] = (vals[idx]||'').replace(/^"|"$/g,''));
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function splitCSVLine(line){
+  const res = []; let cur = '', inQ = false;
+  for(let i=0;i<line.length;i++){
+    const ch = line[i];
+    if(ch === '"'){ inQ = !inQ; cur += ch; continue; }
+    if(ch === ',' && !inQ){ res.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  res.push(cur); return res;
+}
+
+/* Utilities */
+function escapeHtml(s){ if(s===null || s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeJS(s){ if(s===null || s===undefined) return ''; return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+
+/* Clear all data (Admin only) */
+async function clearAllConfirm(){
+  if(!confirm('Are you sure? This will erase all records from the database.')) return;
+  if(!confirm('This action cannot be undone. Type "DELETE ALL" to confirm:')) return;
+  
+  try {
+    // Delete all records
+    for (const record of records) {
+      await deleteRecordFromDB(record.id);
+    }
+    records = [];
+    finishedStatus = {};
+    updateNamesDatalist(); 
+    renderDailyTable(); 
+    renderWorkerTable(); 
+    alert('All data cleared from database.');
+  } catch (error) {
+    console.error('Failed to clear data:', error);
+    alert('Failed to clear data: ' + error.message);
+  }
+}
+</script>
+
+</body>
+</html>
