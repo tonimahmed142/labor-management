@@ -645,9 +645,9 @@ function importCSV(e){
     try {
       const text = evt.target.result; const parsed = parseCSV(text);
       const newRecords = parsed.map((row,i)=>({
-        id: row.id || ('imp' + Date.now().toString(36) + i),
+        id: row.id || row.Id || row.ID || ('imp-' + Date.now().toString(36) + '-' + i),
         name: row.name || row.Name || '',
-        date: row.date || row.Date || '',
+        date: normalizeDate(row.date || row.Date || ''),
         description: row.description || row.Description || row.details || '',
         baki: parseFloat(row.baki || row.Baki || 0) || 0,
         jama: parseFloat(row.jama || row.Joma || 0) || 0,
@@ -655,14 +655,24 @@ function importCSV(e){
         section: row.section || 'daily'
       }));
       
-      // Save each record to database
+      const failed = [];
+      // Save each record to database, continue on error
       for (const record of newRecords) {
-        await saveRecord(record, true);
+        try {
+          await saveRecord(record, true);
+        } catch(err) {
+          console.error('Import record failed:', record, err);
+          failed.push({ record, error: err && err.message ? err.message : String(err) });
+        }
       }
       
       // Reload all data
       await loadFromDatabase();
-      alert('Imported CSV successfully'); 
+      if(failed.length){
+        alert('Import completed with errors. ' + failed.length + ' records failed. Check console for details.');
+      } else {
+        alert('Imported CSV successfully');
+      }
       document.getElementById('csvFile').value = '';
     } catch(err){ 
       console.error(err); 
@@ -671,11 +681,34 @@ function importCSV(e){
   }; reader.readAsText(file);
 }
 
-/* CSV parser (handles quoted fields) */
+// helper: normalize dates to YYYY-MM-DD for PostgreSQL
+function normalizeDate(val){
+  if(!val) return '';
+  let s = String(val).trim();
+  // remove surrounding quotes
+  s = s.replace(/^"|\"$/g,'').replace(/^\uFEFF/,'');
+  // already yyyy-mm-dd
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // dd/mm/yyyy or dd-mm-yyyy
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if(m){
+    let dd = m[1].padStart(2,'0'), mm = m[2].padStart(2,'0'), yy = m[3];
+    if(yy.length === 2) yy = (parseInt(yy,10) > 50 ? '19' + yy : '20' + yy);
+    return `${yy}-${mm}-${dd}`;
+  }
+  // try Date parsing
+  const dt = new Date(s);
+  if(!isNaN(dt)) return dt.toISOString().slice(0,10);
+  return s;
+}
+
+// CSV parser (handles quoted fields)
 function parseCSV(text){
   const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
   if(lines.length === 0) return [];
-  const headers = splitCSVLine(lines[0]).map(h=>h.trim());
+  let headers = splitCSVLine(lines[0]).map(h=>h.trim());
+  // remove BOM if present on first header
+  headers[0] = headers[0].replace(/^\uFEFF/,'');
   const rows = [];
   for(let i=1;i<lines.length;i++){
     const vals = splitCSVLine(lines[i]);
@@ -684,17 +717,6 @@ function parseCSV(text){
     rows.push(obj);
   }
   return rows;
-}
-
-function splitCSVLine(line){
-  const res = []; let cur = '', inQ = false;
-  for(let i=0;i<line.length;i++){
-    const ch = line[i];
-    if(ch === '"'){ inQ = !inQ; cur += ch; continue; }
-    if(ch === ',' && !inQ){ res.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  res.push(cur); return res;
 }
 
 /* Utilities */
