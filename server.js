@@ -1,5 +1,5 @@
 const express = require('express');
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 
@@ -10,26 +10,17 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// MySQL Database connection
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'labor_management',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
-
-const pool = mysql.createPool(dbConfig);
+// PostgreSQL Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/labor_management',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
 // Initialize database tables
 async function initializeDatabase() {
   try {
-    const connection = await pool.getConnection();
-    
     // Create records table
-    await connection.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS records (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -44,15 +35,14 @@ async function initializeDatabase() {
     `);
     
     // Create finished_status table
-    await connection.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS finished_status (
         name VARCHAR(255) PRIMARY KEY,
         finished BOOLEAN DEFAULT FALSE,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     
-    connection.release();
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Database initialization error:', error);
@@ -64,7 +54,7 @@ async function initializeDatabase() {
 // Get all records
 app.get('/api/records', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM records ORDER BY date DESC');
+    const { rows } = await pool.query('SELECT * FROM records ORDER BY date DESC');
     res.json(rows);
   } catch (error) {
     console.error('Error fetching records:', error);
@@ -77,8 +67,8 @@ app.post('/api/records', async (req, res) => {
   try {
     const { id, name, date, description, baki, jama, total, section } = req.body;
     
-    const [result] = await pool.execute(
-      'INSERT INTO records (id, name, date, description, baki, jama, total, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    const { rows } = await pool.query(
+      'INSERT INTO records (id, name, date, description, baki, jama, total, section) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
       [id, name, date, description, baki, jama, total, section || 'daily']
     );
     
@@ -95,8 +85,8 @@ app.put('/api/records/:id', async (req, res) => {
     const { id } = req.params;
     const { name, date, description, baki, jama, total, section } = req.body;
     
-    const [result] = await pool.execute(
-      'UPDATE records SET name=?, date=?, description=?, baki=?, jama=?, total=?, section=? WHERE id=?',
+    const { rows } = await pool.query(
+      'UPDATE records SET name=$1, date=$2, description=$3, baki=$4, jama=$5, total=$6, section=$7 WHERE id=$8 RETURNING *',
       [name, date, description, baki, jama, total, section || 'daily', id]
     );
     
@@ -112,7 +102,7 @@ app.delete('/api/records/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    const [result] = await pool.execute('DELETE FROM records WHERE id = ?', [id]);
+    const { rows } = await pool.query('DELETE FROM records WHERE id = $1 RETURNING *', [id]);
     
     res.json({ success: true });
   } catch (error) {
@@ -124,7 +114,7 @@ app.delete('/api/records/:id', async (req, res) => {
 // Get finished status
 app.get('/api/finished-status', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM finished_status');
+    const { rows } = await pool.query('SELECT * FROM finished_status');
     const status = {};
     rows.forEach(row => {
       status[row.name] = row.finished;
@@ -141,9 +131,12 @@ app.post('/api/finished-status', async (req, res) => {
   try {
     const { name, finished } = req.body;
     
-    await pool.execute(
-      'INSERT INTO finished_status (name, finished) VALUES (?, ?) ON DUPLICATE KEY UPDATE finished=?, updated_at=CURRENT_TIMESTAMP',
-      [name, finished, finished]
+    await pool.query(
+      `INSERT INTO finished_status (name, finished) 
+       VALUES ($1, $2) 
+       ON CONFLICT (name) 
+       DO UPDATE SET finished = $2, updated_at = CURRENT_TIMESTAMP`,
+      [name, finished]
     );
     
     res.json({ success: true });
@@ -157,8 +150,8 @@ app.post('/api/finished-status', async (req, res) => {
 app.get('/api/records/worker/:name', async (req, res) => {
   try {
     const { name } = req.params;
-    const [rows] = await pool.execute(
-      'SELECT * FROM records WHERE name = ? ORDER BY date ASC',
+    const { rows } = await pool.query(
+      'SELECT * FROM records WHERE name = $1 ORDER BY date ASC',
       [name]
     );
     res.json(rows);
@@ -166,6 +159,11 @@ app.get('/api/records/worker/:name', async (req, res) => {
     console.error('Error fetching worker records:', error);
     res.status(500).json({ error: 'Failed to fetch worker records' });
   }
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, async () => {
