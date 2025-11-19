@@ -106,7 +106,13 @@
         </select>
         <button class="btn btn-primary" onclick="addRecord()">Add</button>
       </div>
-      <div class="small mt-1">Tip: total auto-calculates as বাকী + জমা. "Payment" or জমা>0 will highlight row red.</div>
+        <div class="small mt-1">Tip: total auto-calculates as বাকী + জমা. "Payment" or জমা&gt;0 will highlight row red.</div>
+        <!-- Admin-only clear all button -->
+      <div class="mt-2">
+        <button class="btn btn-sm btn-danger admin-only hidden" onclick="clearAllConfirm()">
+          Clear All Data (Admin)
+        </button>
+      </div>
     </div>
 
     <table id="dailyTable" class="table table-sm">
