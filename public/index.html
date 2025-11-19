@@ -639,7 +639,7 @@ function exportCSV(){
   URL.revokeObjectURL(url);
 }
 
-function importCSV(e){
+async function importCSV(e){
   const file = e.target.files[0]; if(!file) return;
   const reader = new FileReader(); reader.onload = async function(evt){
     try {
@@ -655,9 +655,11 @@ function importCSV(e){
         section: row.section || 'daily'
       }));
       
-      // Save each record to database
+      // Save each record to database with a small delay between requests
+      const delayMs = 150; // adjust as needed (ms)
       for (const record of newRecords) {
         await saveRecord(record, true);
+        await new Promise(res => setTimeout(res, delayMs));
       }
       
       // Reload all data
