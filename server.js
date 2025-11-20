@@ -54,13 +54,28 @@ async function initializeDatabase() {
   }
 }
 
+// helper to normalize Date -> 'YYYY-MM-DD' strings
+function formatRows(rows){
+  return rows.map(r => {
+    const out = { ...r };
+    if(out.date){
+      if(typeof out.date === 'string'){
+        out.date = out.date.split('T')[0];
+      } else if(out.date instanceof Date){
+        out.date = out.date.toISOString().split('T')[0];
+      }
+    }
+    return out;
+  });
+}
+
 // API Routes
 
 // Get all records
 app.get('/api/records', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM records ORDER BY date DESC');
-    res.json(rows);
+    res.json(formatRows(rows));
   } catch (error) {
     console.error('Error fetching records:', error);
     res.status(500).json({ error: 'Failed to fetch records' });
@@ -78,8 +93,8 @@ app.post('/api/records', async (req, res) => {
       [id, name, date, description, baki, jama, total, section || 'daily']
     );
 
-    // return created row and 201
-    res.status(201).json(rows[0]);
+    // return created row (with formatted date) and 201
+    res.status(201).json(formatRows(rows)[0]);
   } catch (error) {
     console.error('Error adding record:', error);
     res.status(500).json({ error: 'Failed to add record' });
@@ -161,7 +176,7 @@ app.get('/api/records/worker/:name', async (req, res) => {
       'SELECT * FROM records WHERE name = $1 ORDER BY date ASC',
       [name]
     );
-    res.json(rows);
+    res.json(formatRows(rows));
   } catch (error) {
     console.error('Error fetching worker records:', error);
     res.status(500).json({ error: 'Failed to fetch worker records' });
