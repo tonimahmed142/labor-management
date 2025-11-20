@@ -656,7 +656,7 @@ async function importCSV(e){
       }));
       
       // Save each record to database with a small delay between requests
-      const delayMs = 150; // adjust as needed (ms)
+      const delayMs = 500; // adjust as needed (ms)
       for (const record of newRecords) {
         await saveRecord(record, true);
         await new Promise(res => setTimeout(res, delayMs));
