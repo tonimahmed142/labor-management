@@ -639,39 +639,54 @@ function exportCSV(){
   URL.revokeObjectURL(url);
 }
 
-async function importCSV(e){
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader(); reader.onload = async function(evt){
+async function importCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async function (evt) {
     try {
-      const text = evt.target.result; const parsed = parseCSV(text);
-      const newRecords = parsed.map((row,i)=>({
-        id: row.id || ('imp' + Date.now().toString(36) + i),
-        name: row.name || row.Name || '',
-        date: row.date || row.Date || '',
-        description: row.description || row.Description || row.details || '',
-        baki: parseFloat(row.baki || row.Baki || 0) || 0,
-        jama: parseFloat(row.jama || row.Joma || 0) || 0,
-        total: parseFloat(row.total || 0) || 0,
-        section: row.section || 'daily'
-      }));
-      
-      // Save each record to database with a small delay between requests
-      const delayMs = 500; // adjust as needed (ms)
+      const text = evt.target.result;
+      const parsed = parseCSV(text);
+
+      const newRecords = parsed.map((row, i) => {
+        const safeNumber = v => {
+          const num = parseFloat((v || "").toString().trim());
+          return isNaN(num) ? 0 : num;
+        };
+
+        return {
+          id: row.id || ("imp" + Date.now().toString(36) + i),
+          name: row.name || row.Name || "",
+          date: row.date || row.Date || "",
+          description: row.description || row.Description || row.details || "",
+          baki: safeNumber(row.baki || row.Baki),
+          jama: safeNumber(row.jama || row.Joma),
+          total: safeNumber(row.total),
+          section: row.section || "daily"
+        };
+      });
+
+      // Import one by one (safe)
       for (const record of newRecords) {
-        await saveRecord(record, true);
-        await new Promise(res => setTimeout(res, delayMs));
+        await saveRecord(record);   // Removed "true"
+        await new Promise(res => setTimeout(res, 300)); // smoother delay
       }
-      
-      // Reload all data
-      await loadFromDatabase();
-      alert('Imported CSV successfully'); 
-      document.getElementById('csvFile').value = '';
-    } catch(err){ 
-      console.error(err); 
-      alert('Failed to import CSV'); 
+
+      await loadFromServer(); // correct function
+      alert("Imported CSV successfully");
+
+      document.getElementById("csvFile").value = "";
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to import CSV");
     }
-  }; reader.readAsText(file);
+  };
+
+  reader.readAsText(file);
 }
+
 
 /* CSV parser (handles quoted fields) */
 function parseCSV(text){
